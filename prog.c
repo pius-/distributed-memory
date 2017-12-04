@@ -84,16 +84,19 @@ void relax_array(double **a, double **b,
 					&a[0][0], recvcounts, displs, MPI_DOUBLE, root, 
 					MPI_COMM_WORLD);
 
-		if (rank == root)
-		{
-			print_array(a, dimensions);
-		}
-
 		// bitwise and of local_done to find global_done
 		// local_done will be 0 if a processor is not done
 		// global_done will only be 1, if all processors are done
 		MPI_Allreduce(&local_done, &global_done, 1,
 					  MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
+
+#ifdef DEBUG
+		if (rank == root)
+		{
+			print_array(a, dimensions);
+		}
+#endif
+
 	}
 }
 
@@ -233,7 +236,9 @@ int main(int argc, char *argv[])
 	if (rank == root)
 	{
 		populate_array(a, b, dimensions);
+#ifdef DEBUG
 		print_array(a, dimensions);
+#endif
 	}
 
 	relax_array(a, b, rank, dimensions, precision,
