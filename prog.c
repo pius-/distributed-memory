@@ -18,7 +18,8 @@ void print_array(double **a, int dimensions)
 }
 
 /*
- * Populates the array with values into 'a' and 'b'.
+ * Populates the arrays 'a' and 'b' 
+ * with 1s for border cells, and 0s for inner cells.
  * Initially both 'a' and 'b' will be the same.
  */
 void populate_array(double **a, double **b, int dimensions)
@@ -27,11 +28,11 @@ void populate_array(double **a, double **b, int dimensions)
 	{
 		for (int j = 0; j < dimensions; j++)
 		{
-			// using rand generates the same random values on multiple runs
-			// as it uses the same seed
-			int val = rand() % 10;
-			a[i][j] = val;
-			b[i][j] = val;
+			if (i == 0 || j == 0 || i == dimensions - 1 || j == dimensions - 1)
+			{
+				a[i][j] = 1.0;
+				b[i][j] = 1.0;
+			}
 		}
 	}
 }
@@ -146,10 +147,8 @@ void alloc_memory(int dimensions, int processors,
 	*a = malloc((unsigned long)dimensions * sizeof(double *));
 	*b = malloc((unsigned long)dimensions * sizeof(double *));
 
-	*a_buf = malloc(
-			(unsigned long)(dimensions * dimensions) * sizeof(double));
-	*b_buf = malloc(
-			(unsigned long)(dimensions * dimensions) * sizeof(double));
+	*a_buf = calloc((unsigned long)(dimensions * dimensions), sizeof(double));
+	*b_buf = calloc((unsigned long)(dimensions * dimensions), sizeof(double));
 
 	*start_rows = malloc((unsigned long)processors * sizeof(int));
 	*rows_to_relax = malloc((unsigned long)processors * sizeof(int));
