@@ -46,12 +46,21 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 			i < dimensions - 1 && i < start_row + rows_to_relax;
 			i++)
 	{
-		for (int j = 1; j < dimensions - 1; j++)
+		for (int j = 0; j < dimensions; j++)
 		{
-			b[i][j] = (a[i - 1][j] 
-					+ a[i + 1][j] 
-					+ a[i][j - 1] 
-					+ a[i][j + 1]) / 4;
+
+			// if border cell, leave unchanged, otherwise relax
+			if (j == 0 || j == dimensions - 1)
+			{
+				b[i][j] = a[i][j];
+			}
+			else
+			{
+				b[i][j] = (a[i - 1][j] 
+						+ a[i + 1][j] 
+						+ a[i][j - 1] 
+						+ a[i][j + 1]) / 4;
+			}
 
 			if (is_done && fabs(b[i][j] - a[i][j]) > precision)
 			{
@@ -66,7 +75,8 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 void relax_array(double **a, double **b, 
 		int rank, int dimensions, double precision,
 		int *start_rows, int *rows_to_relax, 
-		int *recvcounts, int *displs)
+		int *send_counts, int *send_displs,
+		int *recv_counts, int *recv_displs)
 {
 	int iterations = 0;
 	char global_done = 0, local_done = 0, root = 0;
@@ -74,9 +84,9 @@ void relax_array(double **a, double **b,
 	{
 		iterations++;
 
-		// broadcast so all processors have the same starting array
-		MPI_Bcast(&(a[0][0]), dimensions * dimensions,
-				MPI_DOUBLE, root, MPI_COMM_WORLD);
+		MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
+                 MPI_DOUBLE, &(a[start_rows[rank]-1][0]), send_counts[rank],
+                 MPI_DOUBLE, root, MPI_COMM_WORLD);
 
 		// each processor relaxes its section, and stores results in 'b'
 		local_done = relax_section(a, b, dimensions, precision,
@@ -84,8 +94,8 @@ void relax_array(double **a, double **b,
 
 		// gather results from each processor's 'b' array
 		// into the root processors 'a' array
-		MPI_Gatherv(&(b[start_rows[rank]][1]), recvcounts[rank], MPI_DOUBLE,
-				&(a[0][0]), recvcounts, displs, MPI_DOUBLE, root, 
+		MPI_Gatherv(&(b[start_rows[rank]][0]), recv_counts[rank], MPI_DOUBLE,
+				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root, 
 				MPI_COMM_WORLD);
 
 		// bitwise and of local_done to find global_done
@@ -110,7 +120,8 @@ void relax_array(double **a, double **b,
 
 void alloc_work(int dimensions, int processors,
 		int *start_rows, int *rows_to_relax, 
-		int *recvcounts, int *displs)
+		int *send_counts, int *send_displs,
+		int *recv_counts, int *recv_displs)
 {
 	// each processor will relax n rows
 	int nrows = (dimensions - 2) / processors;
@@ -132,17 +143,23 @@ void alloc_work(int dimensions, int processors,
 		row += rows_to_relax[rank];
 
 		// number of elements to relax
-		recvcounts[rank] = rows_to_relax[rank] * dimensions;
+		recv_counts[rank] = rows_to_relax[rank] * dimensions;
+
+		// number of elements to send, need row above and row below
+		send_counts[rank] = recv_counts[rank] + 2 * dimensions;
 
 		// displacement relative to start
-		displs[rank] = start_rows[rank] * dimensions + 1;
+		recv_displs[rank] = start_rows[rank] * dimensions;
+
+		send_displs[rank] = recv_displs[rank] - dimensions;
 	}
 }
 
 void alloc_memory(int dimensions, int processors,
 		double ***a, double ***b, double **a_buf, double **b_buf,
 		int **start_rows, int **rows_to_relax, 
-		int **recvcounts, int **displs)
+		int **send_counts, int **send_displs,
+		int **recv_counts, int **recv_displs)
 {
 	*a = malloc((unsigned long)dimensions * sizeof(double *));
 	*b = malloc((unsigned long)dimensions * sizeof(double *));
@@ -152,12 +169,15 @@ void alloc_memory(int dimensions, int processors,
 
 	*start_rows = malloc((unsigned long)processors * sizeof(int));
 	*rows_to_relax = malloc((unsigned long)processors * sizeof(int));
-	*recvcounts = malloc((unsigned long)processors * sizeof(int));
-	*displs = malloc((unsigned long)processors * sizeof(int));
+	*send_counts = malloc((unsigned long)processors * sizeof(int));
+	*send_displs = malloc((unsigned long)processors * sizeof(int));
+	*recv_counts = malloc((unsigned long)processors * sizeof(int));
+	*recv_displs = malloc((unsigned long)processors * sizeof(int));
 
 	if (*a == NULL || *b == NULL || *a_buf == NULL || *b_buf == NULL 
 			|| start_rows == NULL || rows_to_relax == NULL 
-			|| recvcounts == NULL || displs == NULL)
+			|| send_counts == NULL || send_displs == NULL
+			|| recv_counts == NULL || recv_displs == NULL)
 	{
 		printf("malloc failed.\n");
 		exit(EXIT_FAILURE);
@@ -173,7 +193,8 @@ void alloc_memory(int dimensions, int processors,
 
 void dealloc_memory(double **a, double **b, double *a_buf, double *b_buf,
 		int *start_rows, int *rows_to_relax, 
-		int *recvcounts, int *displs)
+		int *send_counts, int *send_displs,
+		int *recv_counts, int *recv_displs)
 {
 	free(a);
 	free(b);
@@ -181,8 +202,10 @@ void dealloc_memory(double **a, double **b, double *a_buf, double *b_buf,
 	free(b_buf);
 	free(start_rows);
 	free(rows_to_relax);
-	free(recvcounts);
-	free(displs);
+	free(send_counts);
+	free(send_displs);
+	free(recv_counts);
+	free(recv_displs);
 }
 
 void process_args(int argc, char *argv[], int *dimensions, double *precision)
@@ -244,14 +267,15 @@ int main(int argc, char *argv[])
 
 	double **a = NULL, **b = NULL, *a_buf = NULL, *b_buf = NULL;
 	int *start_rows = NULL, *rows_to_relax = NULL,
-		*recvcounts = NULL, *displs = NULL;
+		*send_counts = NULL, *send_displs = NULL,
+		*recv_counts = NULL, *recv_displs = NULL;
 
 	alloc_memory(dimensions, processors,
-			&a, &b, &a_buf, &b_buf,
-			&start_rows, &rows_to_relax, &recvcounts, &displs);
+			&a, &b, &a_buf, &b_buf, &start_rows, &rows_to_relax, 
+			&send_counts, &send_displs, &recv_counts, &recv_displs);
 
-	alloc_work(dimensions, processors,
-			start_rows, rows_to_relax, recvcounts, displs);
+	alloc_work(dimensions, processors, start_rows, rows_to_relax, 
+			send_counts, send_displs, recv_counts, recv_displs);
 
 	if (rank == root)
 	{
@@ -260,12 +284,12 @@ int main(int argc, char *argv[])
 		print_array(a, dimensions);
 #endif
 	}
+	
+	relax_array(a, b, rank, dimensions, precision, start_rows, rows_to_relax, 
+			send_counts, send_displs, recv_counts, recv_displs);
 
-	relax_array(a, b, rank, dimensions, precision,
-			start_rows, rows_to_relax, recvcounts, displs);
-
-	dealloc_memory(a, b, a_buf, b_buf, 
-			start_rows, rows_to_relax, recvcounts, displs);
+	dealloc_memory(a, b, a_buf, b_buf, start_rows, rows_to_relax, 
+			send_counts, send_displs, recv_counts, recv_displs);
 
 	MPI_Finalize();
 	exit(EXIT_SUCCESS);
