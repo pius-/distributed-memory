@@ -60,11 +60,15 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 						+ a[i + 1][j] 
 						+ a[i][j - 1] 
 						+ a[i][j + 1]) / 4;
-			}
 
-			if (is_done && fabs(b[i][j] - a[i][j]) > precision)
-			{
-				is_done = 0;
+				// precision values are only calculated until a cell is found 
+				// with a precision value greater than the required precision
+				// after which we know the section is not relaxed
+				// so no point checking other cell precisions
+				if (is_done && fabs(b[i][j] - a[i][j]) > precision)
+				{
+					is_done = 0;
+				}
 			}
 		}
 	}
