@@ -67,9 +67,12 @@ void relax_array(double **a, double **b,
 				 int *start_rows, int *rows_to_relax, 
 				 int *recvcounts, int *displs)
 {
+	int iterations = 0;
 	char global_done = 0, local_done = 0, root = 0;
 	while (!global_done)
 	{
+		iterations++;
+
 		// broadcast so all processors have the same starting array
 		MPI_Bcast(&a[0][0], dimensions * dimensions,
 				  MPI_DOUBLE, root, MPI_COMM_WORLD);
@@ -96,7 +99,11 @@ void relax_array(double **a, double **b,
 			print_array(a, dimensions);
 		}
 #endif
+	}
 
+	if (rank == root)
+	{
+		printf("iterations: %d\n", iterations);
 	}
 }
 
