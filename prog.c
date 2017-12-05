@@ -37,20 +37,20 @@ void populate_array(double **a, double **b, int dimensions)
 }
 
 char relax_section(double **a, double **b, int dimensions, double precision,
-				   int start_row, int rows_to_relax)
+		int start_row, int rows_to_relax)
 {
 	char is_done = 1;
 
 	for (int i = start_row;
-		 i < dimensions - 1 && i < start_row + rows_to_relax;
-		 i++)
+			i < dimensions - 1 && i < start_row + rows_to_relax;
+			i++)
 	{
 		for (int j = 1; j < dimensions - 1; j++)
 		{
 			b[i][j] = (a[i - 1][j] 
-				+ a[i + 1][j] 
-				+ a[i][j - 1] 
-				+ a[i][j + 1]) / 4;
+					+ a[i + 1][j] 
+					+ a[i][j - 1] 
+					+ a[i][j + 1]) / 4;
 
 			if (is_done && fabs(b[i][j] - a[i][j]) > precision)
 			{
@@ -63,9 +63,9 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 }
 
 void relax_array(double **a, double **b, 
-				 int rank, int dimensions, double precision,
-				 int *start_rows, int *rows_to_relax, 
-				 int *recvcounts, int *displs)
+		int rank, int dimensions, double precision,
+		int *start_rows, int *rows_to_relax, 
+		int *recvcounts, int *displs)
 {
 	int iterations = 0;
 	char global_done = 0, local_done = 0, root = 0;
@@ -74,24 +74,24 @@ void relax_array(double **a, double **b,
 		iterations++;
 
 		// broadcast so all processors have the same starting array
-		MPI_Bcast(&a[0][0], dimensions * dimensions,
-				  MPI_DOUBLE, root, MPI_COMM_WORLD);
+		MPI_Bcast(&(a[0][0]), dimensions * dimensions,
+				MPI_DOUBLE, root, MPI_COMM_WORLD);
 
 		// each processor relaxes its section, and stores results in 'b'
 		local_done = relax_section(a, b, dimensions, precision,
-								   start_rows[rank], rows_to_relax[rank]);
+				start_rows[rank], rows_to_relax[rank]);
 
 		// gather results from each processor's 'b' array
 		// into the root processors 'a' array
-		MPI_Gatherv(&b[start_rows[rank]][1], recvcounts[rank], MPI_DOUBLE,
-					&a[0][0], recvcounts, displs, MPI_DOUBLE, root, 
-					MPI_COMM_WORLD);
+		MPI_Gatherv(&(b[start_rows[rank]][1]), recvcounts[rank], MPI_DOUBLE,
+				&(a[0][0]), recvcounts, displs, MPI_DOUBLE, root, 
+				MPI_COMM_WORLD);
 
 		// bitwise and of local_done to find global_done
 		// local_done will be 0 if a processor is not done
 		// global_done will only be 1, if all processors are done
 		MPI_Allreduce(&local_done, &global_done, 1,
-					  MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
+				MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
 
 #ifdef DEBUG
 		if (rank == root)
@@ -108,15 +108,15 @@ void relax_array(double **a, double **b,
 }
 
 void alloc_work(int dimensions, int processors,
-				int *start_rows, int *rows_to_relax, 
-				int *recvcounts, int *displs)
+		int *start_rows, int *rows_to_relax, 
+		int *recvcounts, int *displs)
 {
 	// each processor will relax n rows
 	int nrows = (dimensions - 2) / processors;
 
 	// first m processors will relax n + 1 rows,
 	// where m is extra_rows and n is rows_to_relax
-	int extra_rows = nrows % processors;
+	int extra_rows = (dimensions - 2) % processors;
 
 	// first processor will start at row 1
 	int row = 1;
@@ -139,17 +139,17 @@ void alloc_work(int dimensions, int processors,
 }
 
 void alloc_memory(int dimensions, int processors,
-				  double ***a, double ***b, double **a_buf, double **b_buf,
-				  int **start_rows, int **rows_to_relax, 
-				  int **recvcounts, int **displs)
+		double ***a, double ***b, double **a_buf, double **b_buf,
+		int **start_rows, int **rows_to_relax, 
+		int **recvcounts, int **displs)
 {
 	*a = malloc((unsigned long)dimensions * sizeof(double *));
 	*b = malloc((unsigned long)dimensions * sizeof(double *));
 
 	*a_buf = malloc(
-		(unsigned long)(dimensions * dimensions) * sizeof(double));
+			(unsigned long)(dimensions * dimensions) * sizeof(double));
 	*b_buf = malloc(
-		(unsigned long)(dimensions * dimensions) * sizeof(double));
+			(unsigned long)(dimensions * dimensions) * sizeof(double));
 
 	*start_rows = malloc((unsigned long)processors * sizeof(int));
 	*rows_to_relax = malloc((unsigned long)processors * sizeof(int));
@@ -157,8 +157,8 @@ void alloc_memory(int dimensions, int processors,
 	*displs = malloc((unsigned long)processors * sizeof(int));
 
 	if (*a == NULL || *b == NULL || *a_buf == NULL || *b_buf == NULL 
-		|| start_rows == NULL || rows_to_relax == NULL 
-		|| recvcounts == NULL || displs == NULL)
+			|| start_rows == NULL || rows_to_relax == NULL 
+			|| recvcounts == NULL || displs == NULL)
 	{
 		printf("malloc failed.\n");
 		exit(EXIT_FAILURE);
@@ -200,15 +200,15 @@ void process_args(int argc, char *argv[], int *dimensions, double *precision)
 	{
 		switch (opt)
 		{
-		case 'd':
-			*dimensions = atoi(optarg);
-			break;
-		case 'p':
-			*precision = atof(optarg);
-			break;
-		default:
-			printf("unexpected argument.\n");
-			exit(EXIT_FAILURE);
+			case 'd':
+				*dimensions = atoi(optarg);
+				break;
+			case 'p':
+				*precision = atof(optarg);
+				break;
+			default:
+				printf("unexpected argument.\n");
+				exit(EXIT_FAILURE);
 		}
 	}
 }
@@ -220,7 +220,7 @@ int main(int argc, char *argv[])
 	rc = MPI_Init(&argc, &argv);
 	if (rc != MPI_SUCCESS)
 	{
-		printf("Error starting MPI program\n");
+		printf("error starting MPI program.\n");
 		MPI_Abort(MPI_COMM_WORLD, rc);
 	}
 
@@ -248,11 +248,11 @@ int main(int argc, char *argv[])
 		*recvcounts = NULL, *displs = NULL;
 
 	alloc_memory(dimensions, processors,
-				 &a, &b, &a_buf, &b_buf,
-				 &start_rows, &rows_to_relax, &recvcounts, &displs);
+			&a, &b, &a_buf, &b_buf,
+			&start_rows, &rows_to_relax, &recvcounts, &displs);
 
 	alloc_work(dimensions, processors,
-			   start_rows, rows_to_relax, recvcounts, displs);
+			start_rows, rows_to_relax, recvcounts, displs);
 
 	if (rank == root)
 	{
@@ -263,7 +263,7 @@ int main(int argc, char *argv[])
 	}
 
 	relax_array(a, b, rank, dimensions, precision,
-				start_rows, rows_to_relax, recvcounts, displs);
+			start_rows, rows_to_relax, recvcounts, displs);
 
 	dealloc_memory(a, b, a_buf, b_buf, 
 			start_rows, rows_to_relax, recvcounts, displs);
