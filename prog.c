@@ -165,6 +165,20 @@ void alloc_memory(int dimensions, int processors,
 	}
 }
 
+void dealloc_memory(double **a, double **b, double *a_buf, double *b_buf,
+		int *start_rows, int *rows_to_relax, 
+		int *recvcounts, int *displs)
+{
+	free(a);
+	free(b);
+	free(a_buf);
+	free(b_buf);
+	free(start_rows);
+	free(rows_to_relax);
+	free(recvcounts);
+	free(displs);
+}
+
 void process_args(int argc, char *argv[], int *dimensions, double *precision)
 {
 	if (argc != 3)
@@ -244,11 +258,8 @@ int main(int argc, char *argv[])
 	relax_array(a, b, rank, dimensions, precision,
 				start_rows, rows_to_relax, recvcounts, displs);
 
-	// deallocate memory
-	free(a);
-	free(b);
-	free(a_buf);
-	free(b_buf);
+	dealloc_memory(a, b, a_buf, b_buf, 
+			start_rows, rows_to_relax, recvcounts, displs);
 
 	MPI_Finalize();
 	exit(EXIT_SUCCESS);
