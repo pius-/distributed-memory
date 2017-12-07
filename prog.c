@@ -78,19 +78,20 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 	return is_done;
 }
 
-void relax_array(double **a, double **b,
-		int rank, int dimensions, double precision,
+void relax_array(double **a, double **b, int my_rank, int root,
+		int dimensions, double precision,
+		int my_send_count, int my_recv_count,
 		int *send_counts, int *send_displs,
 		int *recv_counts, int *recv_displs)
 {
 	int rc, iterations = 0;
-	char global_done = 0, local_done = 0, root = 0;
+	char global_done = 0, local_done = 0;
 	while (!global_done)
 	{
 		iterations++;
 
 		rc = MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
-				MPI_DOUBLE, &(a[0][0]), send_counts[rank],
+				MPI_DOUBLE, &(a[0][0]), my_send_count,
 				MPI_DOUBLE, root, MPI_COMM_WORLD);
 		if (rc != MPI_SUCCESS)
 		{
@@ -99,13 +100,12 @@ void relax_array(double **a, double **b,
 		}
 
 		// each processor relaxes its section, and stores results in 'b'
-		local_done = relax_section(a, b, dimensions, precision,
-				recv_counts[rank]);
+		local_done = relax_section(a, b, dimensions, precision, my_recv_count);
 
 		// gather results from each processor's 'b' array
 		// into the root processors 'a' array
 		// row 0 is used for calculations, results start from row 1
-		rc = MPI_Gatherv(&(b[1][0]), recv_counts[rank], MPI_DOUBLE,
+		rc = MPI_Gatherv(&(b[1][0]), my_recv_count, MPI_DOUBLE,
 				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
 				MPI_COMM_WORLD);
 		if (rc != MPI_SUCCESS)
@@ -126,20 +126,21 @@ void relax_array(double **a, double **b,
 		}
 
 #ifdef DEBUG
-		if (rank == root)
+		if (my_rank == root)
 		{
 			print_array(a, dimensions);
 		}
 #endif
 	}
 
-	if (rank == root)
+	if (my_rank == root)
 	{
 		printf("iterations: %d\n", iterations);
 	}
 }
 
-void alloc_work(int dimensions, int processors,
+void alloc_work(int dimensions, int processors, int my_rank, int root,
+		int *my_send_count, int *my_recv_count,
 		int *send_counts, int *send_displs, int *recv_counts, int *recv_displs)
 {
 	// each processor will relax n rows
@@ -148,27 +149,33 @@ void alloc_work(int dimensions, int processors,
 	// first m processors will relax nrows + 1 rows, where m is extra_rows
 	int extra_rows = (dimensions - 2) % processors;
 
+	// first m rows will relax n + 1 rows
+	// multiply by dimensions to get total number of cells
+	*my_recv_count = (nrows + (my_rank < extra_rows)) * dimensions;
+
+	// number of cells to send, includes row above and row below
+	*my_send_count = *my_recv_count + 2 * dimensions;
+
 	// first processor will start at row 1, after n (= dimensions) cells
 	int displacement = dimensions;
 
-	for (int rank = 0; rank < processors; rank++)
+	if (my_rank == root)
 	{
-		// first m rows will relax n + 1 rows
-		// multiply by dimensions to get total number of cells
-		recv_counts[rank] = (nrows + (rank < extra_rows)) * dimensions;
+		for (int rank = 0; rank < processors; rank++)
+		{
+			recv_counts[rank] = (nrows + (rank < extra_rows)) * dimensions;
+			send_counts[rank] = recv_counts[rank] + 2 * dimensions;
 
-		// number of cells to send, includes row above and row below
-		send_counts[rank] = recv_counts[rank] + 2 * dimensions;
+			// calculate start position, displacement relative to start
+			recv_displs[rank] = displacement;
+			displacement += recv_counts[rank];
 
-		// calculate start position, displacement relative to start
-		recv_displs[rank] = displacement;
-		displacement += recv_counts[rank];
-
-		send_displs[rank] = recv_displs[rank] - dimensions;
+			send_displs[rank] = recv_displs[rank] - dimensions;
+		}
 	}
 }
 
-void alloc_memory(int dimensions, int processors, int rank,
+void alloc_memory(int dimensions, int processors, int my_rank, int root,
 		double ***a, double ***b, double **a_buf, double **b_buf,
 		int **send_counts, int **send_displs,
 		int **recv_counts, int **recv_displs)
@@ -176,24 +183,31 @@ void alloc_memory(int dimensions, int processors, int rank,
 	*a = malloc((unsigned long)dimensions * sizeof(double *));
 	*b = malloc((unsigned long)dimensions * sizeof(double *));
 
-	int rows = dimensions, root = 0;
-	if (rank != root)
+	// root needs space for whole array
+	// rest only need space for the rows they are relaxing
+	int rows = dimensions;
+	if (my_rank != root)
 	{
 		// each processor will relax n rows,
 		// first m processors will relax n + 1 rows,
 		// + 2 extra for row above and below for relaxation calculations
 		int nrows = dimensions / processors;
 		int extra_rows = (dimensions - 2) % processors;
-		rows = nrows + (rank < extra_rows) + 2;
+		rows = nrows + (my_rank < extra_rows) + 2;
 	}
 
 	*a_buf = calloc((unsigned long)(dimensions * rows), sizeof(double));
 	*b_buf = calloc((unsigned long)(dimensions * rows), sizeof(double));
 
-	*send_counts = malloc((unsigned long)processors * sizeof(int));
-	*send_displs = malloc((unsigned long)processors * sizeof(int));
-	*recv_counts = malloc((unsigned long)processors * sizeof(int));
-	*recv_displs = malloc((unsigned long)processors * sizeof(int));
+	// only root requires send/recv counts of all sections
+	// rest only require the send/recv count for their section
+	if (my_rank == root)
+	{
+		*send_counts = malloc((unsigned long)processors * sizeof(int));
+		*send_displs = malloc((unsigned long)processors * sizeof(int));
+		*recv_counts = malloc((unsigned long)processors * sizeof(int));
+		*recv_displs = malloc((unsigned long)processors * sizeof(int));
+	}
 
 	if (*a == NULL || *b == NULL || *a_buf == NULL || *b_buf == NULL
 			|| send_counts == NULL || send_displs == NULL
@@ -254,7 +268,7 @@ void process_args(int argc, char *argv[], int *dimensions, double *precision)
 
 int main(int argc, char *argv[])
 {
-	int rc, rank, root = 0, processors, dimensions;
+	int rc, my_rank, root = 0, processors, dimensions;
 	double precision;
 
 	// init
@@ -266,7 +280,7 @@ int main(int argc, char *argv[])
 	}
 
 	// get rank
-	rc = MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	rc = MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
 	if (rc != MPI_SUCCESS)
 	{
 		printf("error retrieving rank.\n");
@@ -283,7 +297,7 @@ int main(int argc, char *argv[])
 
 	process_args(argc, argv, &dimensions, &precision);
 
-	if (rank == root)
+	if (my_rank == root)
 	{
 		printf("using dimension: %d\n", dimensions);
 		printf("using processors: %d\n", processors);
@@ -294,13 +308,15 @@ int main(int argc, char *argv[])
 	int *send_counts = NULL, *send_displs = NULL,
 		*recv_counts = NULL, *recv_displs = NULL;
 
-	alloc_memory(dimensions, processors, rank, &a, &b, &a_buf, &b_buf,
+	alloc_memory(dimensions, processors, my_rank, root, &a, &b, &a_buf, &b_buf,
 			&send_counts, &send_displs, &recv_counts, &recv_displs);
-
-	alloc_work(dimensions, processors,
+		
+	int my_send_count, my_recv_count;
+	alloc_work(dimensions, processors, my_rank, root, 
+			&my_send_count, &my_recv_count,
 			send_counts, send_displs, recv_counts, recv_displs);
-
-	if (rank == root)
+	
+	if (my_rank == root)
 	{
 		populate_array(a, b, dimensions);
 #ifdef DEBUG
@@ -308,7 +324,8 @@ int main(int argc, char *argv[])
 #endif
 	}
 
-	relax_array(a, b, rank, dimensions, precision,
+	relax_array(a, b, my_rank, root, dimensions, precision, 
+			my_send_count, my_recv_count,
 			send_counts, send_displs, recv_counts, recv_displs);
 
 	dealloc_memory(a, b, a_buf, b_buf,
