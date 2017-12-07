@@ -18,7 +18,7 @@ void print_array(double **a, int dimensions)
 }
 
 /*
- * Populates the arrays 'a' and 'b' 
+ * Populates the arrays 'a' and 'b'
  * with 1s for border cells, and 0s for inner cells.
  * Initially both 'a' and 'b' will be the same.
  */
@@ -51,19 +51,19 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 			cells_to_relax--;
 
 			// first and last columns don't need relaxing
-			// but have to be included in results for gather v 
+			// but have to be included in results for gather v
 			if (j == 0 || j == dimensions - 1)
 			{
 				b[i][j] = a[i][j];
 			}
 			else
 			{
-				b[i][j] = (a[i - 1][j] 
-						+ a[i + 1][j] 
-						+ a[i][j - 1] 
+				b[i][j] = (a[i - 1][j]
+						+ a[i + 1][j]
+						+ a[i][j - 1]
 						+ a[i][j + 1]) / 4;
 
-				// precision values are only calculated until a cell is found 
+				// precision values are only calculated until a cell is found
 				// with a precision value greater than the required precision
 				// after which we know the section is not relaxed
 				// so there is no point checking other cell precisions
@@ -78,7 +78,7 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 	return is_done;
 }
 
-void relax_array(double **a, double **b, 
+void relax_array(double **a, double **b,
 		int rank, int dimensions, double precision,
 		int *send_counts, int *send_displs,
 		int *recv_counts, int *recv_displs)
@@ -90,8 +90,8 @@ void relax_array(double **a, double **b,
 		iterations++;
 
 		MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
-                 MPI_DOUBLE, &(a[0][0]), send_counts[rank],
-                 MPI_DOUBLE, root, MPI_COMM_WORLD);
+				MPI_DOUBLE, &(a[0][0]), send_counts[rank],
+				MPI_DOUBLE, root, MPI_COMM_WORLD);
 
 		// each processor relaxes its section, and stores results in 'b'
 		local_done = relax_section(a, b, dimensions, precision,
@@ -101,7 +101,7 @@ void relax_array(double **a, double **b,
 		// into the root processors 'a' array
 		// row 0 is used for calculations, results start from row 1
 		MPI_Gatherv(&(b[1][0]), recv_counts[rank], MPI_DOUBLE,
-				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root, 
+				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
 				MPI_COMM_WORLD);
 
 		// bitwise and of local_done to find global_done
@@ -180,7 +180,7 @@ void alloc_memory(int dimensions, int processors, int rank,
 	*recv_counts = malloc((unsigned long)processors * sizeof(int));
 	*recv_displs = malloc((unsigned long)processors * sizeof(int));
 
-	if (*a == NULL || *b == NULL || *a_buf == NULL || *b_buf == NULL 
+	if (*a == NULL || *b == NULL || *a_buf == NULL || *b_buf == NULL
 			|| send_counts == NULL || send_displs == NULL
 			|| recv_counts == NULL || recv_displs == NULL)
 	{
@@ -274,8 +274,8 @@ int main(int argc, char *argv[])
 	alloc_memory(dimensions, processors, rank, &a, &b, &a_buf, &b_buf,
 			&send_counts, &send_displs, &recv_counts, &recv_displs);
 
-	alloc_work(dimensions, processors, 
-		send_counts, send_displs, recv_counts, recv_displs);
+	alloc_work(dimensions, processors,
+			send_counts, send_displs, recv_counts, recv_displs);
 
 	if (rank == root)
 	{
@@ -284,7 +284,7 @@ int main(int argc, char *argv[])
 		print_array(a, dimensions);
 #endif
 	}
-	
+
 	relax_array(a, b, rank, dimensions, precision,
 			send_counts, send_displs, recv_counts, recv_displs);
 
