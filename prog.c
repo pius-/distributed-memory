@@ -26,14 +26,15 @@ void populate_array(double **a, double **b, int dimensions)
 {
 	for (int i = 0; i < dimensions; i++)
 	{
-		for (int j = 0; j < dimensions; j++)
-		{
-			if (i == 0 || j == 0 || i == dimensions - 1 || j == dimensions - 1)
-			{
-				a[i][j] = 1.0;
-				b[i][j] = 1.0;
-			}
-		}
+		a[i][0] = 1.0;				// left border
+		a[0][i] = 1.0;				// top border
+		a[i][dimensions - 1] = 1.0;	// right border
+		a[dimensions - 1][i] = 1.0;	// bottom border
+
+		b[i][0] = 1.0;
+		b[0][i] = 1.0;
+		b[i][dimensions - 1] = 1.0;
+		b[dimensions - 1][i] = 1.0;
 	}
 }
 
