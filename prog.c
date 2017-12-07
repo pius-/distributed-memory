@@ -83,15 +83,20 @@ void relax_array(double **a, double **b,
 		int *send_counts, int *send_displs,
 		int *recv_counts, int *recv_displs)
 {
-	int iterations = 0;
+	int rc, iterations = 0;
 	char global_done = 0, local_done = 0, root = 0;
 	while (!global_done)
 	{
 		iterations++;
 
-		MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
+		rc = MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
 				MPI_DOUBLE, &(a[0][0]), send_counts[rank],
 				MPI_DOUBLE, root, MPI_COMM_WORLD);
+		if (rc != MPI_SUCCESS)
+		{
+			printf("error scattering data.\n");
+			MPI_Abort(MPI_COMM_WORLD, rc);
+		}
 
 		// each processor relaxes its section, and stores results in 'b'
 		local_done = relax_section(a, b, dimensions, precision,
@@ -100,15 +105,25 @@ void relax_array(double **a, double **b,
 		// gather results from each processor's 'b' array
 		// into the root processors 'a' array
 		// row 0 is used for calculations, results start from row 1
-		MPI_Gatherv(&(b[1][0]), recv_counts[rank], MPI_DOUBLE,
+		rc = MPI_Gatherv(&(b[1][0]), recv_counts[rank], MPI_DOUBLE,
 				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
 				MPI_COMM_WORLD);
+		if (rc != MPI_SUCCESS)
+		{
+			printf("error gathering data.\n");
+			MPI_Abort(MPI_COMM_WORLD, rc);
+		}
 
 		// bitwise and of local_done to find global_done
 		// local_done will be 0 if a processor is not done
 		// global_done will only be 1, if all processors are done
-		MPI_Allreduce(&local_done, &global_done, 1,
+		rc = MPI_Allreduce(&local_done, &global_done, 1,
 				MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
+		if (rc != MPI_SUCCESS)
+		{
+			printf("error reducing data.\n");
+			MPI_Abort(MPI_COMM_WORLD, rc);
+		}
 
 #ifdef DEBUG
 		if (rank == root)
@@ -239,8 +254,10 @@ void process_args(int argc, char *argv[], int *dimensions, double *precision)
 
 int main(int argc, char *argv[])
 {
-	int rc, rank, root = 0, processors; //, namelen;
+	int rc, rank, root = 0, processors, dimensions;
+	double precision;
 
+	// init
 	rc = MPI_Init(&argc, &argv);
 	if (rc != MPI_SUCCESS)
 	{
@@ -248,16 +265,22 @@ int main(int argc, char *argv[])
 		MPI_Abort(MPI_COMM_WORLD, rc);
 	}
 
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-	MPI_Comm_size(MPI_COMM_WORLD, &processors);
-
-	if (rank == root)
+	// get rank
+	rc = MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	if (rc != MPI_SUCCESS)
 	{
-		printf("main reports %d procs\n", processors);
+		printf("error retrieving rank.\n");
+		MPI_Abort(MPI_COMM_WORLD, rc);
 	}
 
-	int dimensions = 0;
-	double precision = 1;
+	// get number of processors
+	rc = MPI_Comm_size(MPI_COMM_WORLD, &processors);
+	if (rc != MPI_SUCCESS)
+	{
+		printf("error retrieving size of communicator.\n");
+		MPI_Abort(MPI_COMM_WORLD, rc);
+	}
+
 	process_args(argc, argv, &dimensions, &precision);
 
 	if (rank == root)
@@ -291,6 +314,11 @@ int main(int argc, char *argv[])
 	dealloc_memory(a, b, a_buf, b_buf,
 			send_counts, send_displs, recv_counts, recv_displs);
 
-	MPI_Finalize();
+	rc = MPI_Finalize();
+	if (rc != MPI_SUCCESS)
+	{
+		printf("error closing MPI program.\n");
+		MPI_Abort(MPI_COMM_WORLD, rc);
+	}
 	exit(EXIT_SUCCESS);
 }
