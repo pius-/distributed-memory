@@ -191,7 +191,7 @@ void alloc_memory(int dimensions, int processors, int my_rank, int root,
 		// each processor will relax n rows,
 		// first m processors will relax n + 1 rows,
 		// + 2 extra for row above and below for relaxation calculations
-		int nrows = dimensions / processors;
+		int nrows = (dimensions - 2) / processors;
 		int extra_rows = (dimensions - 2) % processors;
 		rows = nrows + (my_rank < extra_rows) + 2;
 	}
