@@ -197,8 +197,8 @@ void alloc_memory(int dimensions, int processors, int my_rank, int root,
 	*a = malloc((unsigned long)rows * sizeof(double *));
 	*b = malloc((unsigned long)rows * sizeof(double *));
 
-	*a_buf = calloc((unsigned long)(dimensions * rows), sizeof(double));
-	*b_buf = calloc((unsigned long)(dimensions * rows), sizeof(double));
+	*a_buf = calloc((unsigned long)(rows * dimensions), sizeof(double));
+	*b_buf = calloc((unsigned long)(rows * dimensions), sizeof(double));
 
 	// only root requires send/recv counts of all sections
 	// rest only require the send/recv count for their section
@@ -219,7 +219,7 @@ void alloc_memory(int dimensions, int processors, int my_rank, int root,
 	}
 
 	// each a[i] points to start of a row
-	for (int i = 0; i < dimensions; i++)
+	for (int i = 0; i < rows; i++)
 	{
 		(*a)[i] = *a_buf + dimensions * i;
 		(*b)[i] = *b_buf + dimensions * i;
