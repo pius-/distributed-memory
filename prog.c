@@ -180,10 +180,8 @@ void alloc_memory(int dimensions, int processors, int my_rank, int root,
 		int **send_counts, int **send_displs,
 		int **recv_counts, int **recv_displs)
 {
-	*a = malloc((unsigned long)dimensions * sizeof(double *));
-	*b = malloc((unsigned long)dimensions * sizeof(double *));
 
-	// root needs space for whole array
+	// only root needs space for whole array
 	// rest only need space for the rows they are relaxing
 	int rows = dimensions;
 	if (my_rank != root)
@@ -195,6 +193,9 @@ void alloc_memory(int dimensions, int processors, int my_rank, int root,
 		int extra_rows = (dimensions - 2) % processors;
 		rows = nrows + (my_rank < extra_rows) + 2;
 	}
+
+	*a = malloc((unsigned long)rows * sizeof(double *));
+	*b = malloc((unsigned long)rows * sizeof(double *));
 
 	*a_buf = calloc((unsigned long)(dimensions * rows), sizeof(double));
 	*b_buf = calloc((unsigned long)(dimensions * rows), sizeof(double));
