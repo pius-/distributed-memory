@@ -4,6 +4,14 @@
 #include <unistd.h>
 #include <mpi.h>
 
+
+void swap_array(double ***a, double ***b)
+{
+    double **temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
 void print_array(double **a, int dimensions)
 {
 	for (int i = 0; i < dimensions; i++)
@@ -28,8 +36,8 @@ void populate_array(double **a, double **b, int dimensions)
 	{
 		a[i][0] = 1.0;				// left border
 		a[0][i] = 1.0;				// top border
-		a[i][dimensions - 1] = 1.0;	// right border
-		a[dimensions - 1][i] = 1.0;	// bottom border
+	a[i][dimensions - 1] = 1.0; // right border
+	a[dimensions - 1][i] = 1.0; // bottom border
 
 		b[i][0] = 1.0;
 		b[0][i] = 1.0;
@@ -38,21 +46,19 @@ void populate_array(double **a, double **b, int dimensions)
 	}
 }
 
-char relax_section(double **a, double **b, int dimensions, double precision,
-		int cells_to_relax)
+char relax_section(double **a, double **b, int rows, int columns,
+		double precision)
 {
 	char is_done = 1;
 
-	// first and last rows don't need relaxing
-	for (int i = 1; i < dimensions - 1; i++)
+	for (int i = 0; i < rows; i++)
 	{
-		for (int j = 0; j < dimensions && cells_to_relax; j++)
+		for (int j = 0; j < columns; j++)
 		{
-			cells_to_relax--;
-
-			// first and last columns don't need relaxing
-			// but have to be included in results for gather v
-			if (j == 0 || j == dimensions - 1)
+			// first and last rows and columns don't need relaxing
+			// but have to be included in results
+			// because the arrays will be swapped for the next iteration
+			if (i == 0 || i == rows - 1 || j == 0 || j == columns - 1)
 			{
 				b[i][j] = a[i][j];
 			}
@@ -79,40 +85,66 @@ char relax_section(double **a, double **b, int dimensions, double precision,
 }
 
 void relax_array(double **a, double **b, int my_rank, int root,
-		int dimensions, double precision,
+		int dimensions, int processors, double precision,
 		int my_send_count, int my_recv_count,
 		int *send_counts, int *send_displs,
 		int *recv_counts, int *recv_displs)
 {
 	int rc, iterations = 0;
+
+	// rows and columns in this processors section
+	int rows = my_send_count / dimensions;
+	int columns = dimensions;
+
+	// index of penultimate row and last row in section
+	int pen_row = rows - 2;
+	int last_row = rows - 1;
+
+	// rank of processors to the left and to the right
+	int proc_left_rank = my_rank - 1;
+	int proc_right_rank = my_rank + 1;
+
+	MPI_Request send_left_req, send_right_req, recv_left_req, recv_right_req;
+
+	rc = MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
+			MPI_DOUBLE, &(a[0][0]), my_send_count,
+			MPI_DOUBLE, root, MPI_COMM_WORLD);
+
 	char global_done = 0, local_done = 0;
 	while (!global_done)
 	{
-		iterations++;
-
-		rc = MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
-				MPI_DOUBLE, &(a[0][0]), my_send_count,
-				MPI_DOUBLE, root, MPI_COMM_WORLD);
-		if (rc != MPI_SUCCESS)
+		if (my_rank == root)
 		{
-			printf("error scattering data.\n");
-			MPI_Abort(MPI_COMM_WORLD, rc);
+		iterations++;
 		}
 
 		// each processor relaxes its section, and stores results in 'b'
-		local_done = relax_section(a, b, dimensions, precision, my_recv_count);
+		local_done = relax_section(a, b, rows, columns, precision);
 
-		// gather results from each processor's 'b' array
-		// into the root processors 'a' array
-		// row 0 is used for calculations, results start from row 1
-		rc = MPI_Gatherv(&(b[1][0]), my_recv_count, MPI_DOUBLE,
-				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
-				MPI_COMM_WORLD);
-		if (rc != MPI_SUCCESS)
+		// async send and receive, will not deadlock
+		// data to be sent doesnt overlap data to be received
+		// MPI_reduce at the end will synchronise all processors
+		// MPI_wait at the end will ensure data is ready for next iteration
+
+		// first proc doesnt need to send/recv left
+		if (my_rank != 0)
 		{
-			printf("error gathering data.\n");
-			MPI_Abort(MPI_COMM_WORLD, rc);
+			MPI_Isend(&(b[1][0]), dimensions, MPI_DOUBLE, 
+				proc_left_rank, 1, MPI_COMM_WORLD, &send_left_req);
+			MPI_Irecv(&(b[0][0]), dimensions, MPI_DOUBLE, 
+				proc_left_rank, 2, MPI_COMM_WORLD, &recv_left_req);
 		}
+
+		// last processor doesnt need to send/recv right
+		if (my_rank != processors - 1)
+		{
+			MPI_Isend(&(b[pen_row][0]), dimensions, MPI_DOUBLE, 
+				proc_right_rank, 2, MPI_COMM_WORLD, &send_right_req);
+			MPI_Irecv(&(b[last_row][0]), dimensions, MPI_DOUBLE, 
+				proc_right_rank, 1, MPI_COMM_WORLD, &recv_right_req);
+		}
+
+		// reduce and swap array during async send and receive
 
 		// bitwise and of local_done to find global_done
 		// local_done will be 0 if a processor is not done
@@ -125,13 +157,29 @@ void relax_array(double **a, double **b, int my_rank, int root,
 			MPI_Abort(MPI_COMM_WORLD, rc);
 		}
 
-#ifdef DEBUG
-		if (my_rank == root)
+		// a now points to results, ready for next iteration
+		swap_array(&a, &b);
+
+		// wait for sends and receives before continuing on to next loop
+		if (my_rank != 0)
 		{
-			print_array(a, dimensions);
-		}
-#endif
+			MPI_Wait(&send_left_req, MPI_STATUS_IGNORE);
+			MPI_Wait(&recv_left_req, MPI_STATUS_IGNORE);
 	}
+
+		if (my_rank != processors - 1)
+		{
+			MPI_Wait(&send_right_req, MPI_STATUS_IGNORE);
+			MPI_Wait(&recv_right_req, MPI_STATUS_IGNORE);
+		}
+	}
+
+	// gather results from each processor's 'a' array
+	// into the root processors 'a' array
+	// row 0 is border and only used for calculations, results start from row 1
+	rc = MPI_Gatherv(&(a[1][0]), my_recv_count, MPI_DOUBLE,
+			&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
+			MPI_COMM_WORLD);
 
 	if (my_rank == root)
 	{
@@ -141,7 +189,8 @@ void relax_array(double **a, double **b, int my_rank, int root,
 
 void alloc_work(int dimensions, int processors, int my_rank, int root,
 		int *my_send_count, int *my_recv_count,
-		int *send_counts, int *send_displs, int *recv_counts, int *recv_displs)
+				int *send_counts, int *send_displs, 
+				int *recv_counts, int *recv_displs)
 {
 	// each processor will relax n rows
 	int nrows = (dimensions - 2) / processors;
@@ -325,9 +374,16 @@ int main(int argc, char *argv[])
 #endif
 	}
 
-	relax_array(a, b, my_rank, root, dimensions, precision, 
+	relax_array(a, b, my_rank, root, dimensions, processors, precision,
 			my_send_count, my_recv_count,
 			send_counts, send_displs, recv_counts, recv_displs);
+
+	if (my_rank == root)
+	{
+#ifdef DEBUG
+		print_array(a, dimensions);
+#endif
+	}
 
 	dealloc_memory(a, b, a_buf, b_buf,
 			send_counts, send_displs, recv_counts, recv_displs);
