@@ -114,6 +114,13 @@ void relax_array(double **a, double **b, int my_rank, int root,
 
 	MPI_Request send_left_req, send_right_req, recv_left_req, recv_right_req;
 
+#ifdef DEBUG
+	if (my_rank == root)
+	{
+		print_array(a, dimensions);
+	}
+#endif
+
 	rc = MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
 			MPI_DOUBLE, &(a[0][0]), my_send_count,
 			MPI_DOUBLE, root, MPI_COMM_WORLD);
@@ -201,6 +208,9 @@ void relax_array(double **a, double **b, int my_rank, int root,
 
 	if (my_rank == root)
 	{
+#ifdef DEBUG
+		print_array(a, dimensions);
+#endif
 		printf("iterations: %d\n", iterations);
 	}
 }
@@ -375,21 +385,11 @@ int main(int argc, char *argv[])
 	if (my_rank == root)
 	{
 		populate_array(a, b, dimensions);
-#ifdef DEBUG
-		print_array(a, dimensions);
-#endif
 	}
 
 	relax_array(a, b, my_rank, root, dimensions, processors, precision,
 			my_send_count, my_recv_count,
 			send_counts, send_displs, recv_counts, recv_displs);
-
-	if (my_rank == root)
-	{
-#ifdef DEBUG
-		print_array(a, dimensions);
-#endif
-	}
 
 	dealloc_memory(a, b, a_buf, b_buf,
 			send_counts, send_displs, recv_counts, recv_displs);
