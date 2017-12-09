@@ -4,12 +4,20 @@
 #include <unistd.h>
 #include <mpi.h>
 
+void handle_rc(int rc, char *error_message)
+{
+	if (rc != MPI_SUCCESS)
+	{
+		printf("%s\n", error_message);
+		MPI_Abort(MPI_COMM_WORLD, rc);
+	}
+}
 
 void swap_array(double ***a, double ***b)
 {
-    double **temp = *a;
-    *a = *b;
-    *b = temp;
+	double **temp = *a;
+	*a = *b;
+	*b = temp;
 }
 
 void print_array(double **a, int dimensions)
@@ -36,8 +44,8 @@ void populate_array(double **a, double **b, int dimensions)
 	{
 		a[i][0] = 1.0;				// left border
 		a[0][i] = 1.0;				// top border
-	a[i][dimensions - 1] = 1.0; // right border
-	a[dimensions - 1][i] = 1.0; // bottom border
+		a[i][dimensions - 1] = 1.0; // right border
+		a[dimensions - 1][i] = 1.0; // bottom border
 
 		b[i][0] = 1.0;
 		b[0][i] = 1.0;
@@ -109,13 +117,14 @@ void relax_array(double **a, double **b, int my_rank, int root,
 	rc = MPI_Scatterv(&(a[0][0]), send_counts, send_displs,
 			MPI_DOUBLE, &(a[0][0]), my_send_count,
 			MPI_DOUBLE, root, MPI_COMM_WORLD);
+	handle_rc(rc, "error scattering data.");
 
 	char global_done = 0, local_done = 0;
 	while (!global_done)
 	{
 		if (my_rank == root)
 		{
-		iterations++;
+			iterations++;
 		}
 
 		// each processor relaxes its section, and stores results in 'b'
@@ -129,19 +138,25 @@ void relax_array(double **a, double **b, int my_rank, int root,
 		// first proc doesnt need to send/recv left
 		if (my_rank != 0)
 		{
-			MPI_Isend(&(b[1][0]), dimensions, MPI_DOUBLE, 
-				proc_left_rank, 1, MPI_COMM_WORLD, &send_left_req);
-			MPI_Irecv(&(b[0][0]), dimensions, MPI_DOUBLE, 
-				proc_left_rank, 2, MPI_COMM_WORLD, &recv_left_req);
+			rc = MPI_Isend(&(b[1][0]), dimensions, MPI_DOUBLE,
+					proc_left_rank, 1, MPI_COMM_WORLD, &send_left_req);
+			handle_rc(rc, "error sending data to the left.");
+
+			rc = MPI_Irecv(&(b[0][0]), dimensions, MPI_DOUBLE,
+					proc_left_rank, 2, MPI_COMM_WORLD, &recv_left_req);
+			handle_rc(rc, "error receiving data from the left.");
 		}
 
 		// last processor doesnt need to send/recv right
 		if (my_rank != processors - 1)
 		{
-			MPI_Isend(&(b[pen_row][0]), dimensions, MPI_DOUBLE, 
-				proc_right_rank, 2, MPI_COMM_WORLD, &send_right_req);
-			MPI_Irecv(&(b[last_row][0]), dimensions, MPI_DOUBLE, 
-				proc_right_rank, 1, MPI_COMM_WORLD, &recv_right_req);
+			rc = MPI_Isend(&(b[pen_row][0]), dimensions, MPI_DOUBLE,
+					proc_right_rank, 2, MPI_COMM_WORLD, &send_right_req);
+			handle_rc(rc, "error sending data to the right.");
+
+			rc = MPI_Irecv(&(b[last_row][0]), dimensions, MPI_DOUBLE,
+					proc_right_rank, 1, MPI_COMM_WORLD, &recv_right_req);
+			handle_rc(rc, "error receiving data from the right.");
 		}
 
 		// reduce and swap array during async send and receive
@@ -151,11 +166,7 @@ void relax_array(double **a, double **b, int my_rank, int root,
 		// global_done will only be 1, if all processors are done
 		rc = MPI_Allreduce(&local_done, &global_done, 1,
 				MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
-		if (rc != MPI_SUCCESS)
-		{
-			printf("error reducing data.\n");
-			MPI_Abort(MPI_COMM_WORLD, rc);
-		}
+		handle_rc(rc, "error reducing done values.");
 
 		// a now points to results, ready for next iteration
 		swap_array(&a, &b);
@@ -163,14 +174,20 @@ void relax_array(double **a, double **b, int my_rank, int root,
 		// wait for sends and receives before continuing on to next loop
 		if (my_rank != 0)
 		{
-			MPI_Wait(&send_left_req, MPI_STATUS_IGNORE);
-			MPI_Wait(&recv_left_req, MPI_STATUS_IGNORE);
-	}
+			rc = MPI_Wait(&send_left_req, MPI_STATUS_IGNORE);
+			handle_rc(rc, "error waiting send left.");
+
+			rc = MPI_Wait(&recv_left_req, MPI_STATUS_IGNORE);
+			handle_rc(rc, "error waiting receive left.");
+		}
 
 		if (my_rank != processors - 1)
 		{
-			MPI_Wait(&send_right_req, MPI_STATUS_IGNORE);
-			MPI_Wait(&recv_right_req, MPI_STATUS_IGNORE);
+			rc = MPI_Wait(&send_right_req, MPI_STATUS_IGNORE);
+			handle_rc(rc, "error waiting send right.");
+
+			rc = MPI_Wait(&recv_right_req, MPI_STATUS_IGNORE);
+			handle_rc(rc, "error waiting receive right.");
 		}
 	}
 
@@ -180,6 +197,7 @@ void relax_array(double **a, double **b, int my_rank, int root,
 	rc = MPI_Gatherv(&(a[1][0]), my_recv_count, MPI_DOUBLE,
 			&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
 			MPI_COMM_WORLD);
+	handle_rc(rc, "error gathering data.");
 
 	if (my_rank == root)
 	{
@@ -189,8 +207,8 @@ void relax_array(double **a, double **b, int my_rank, int root,
 
 void alloc_work(int dimensions, int processors, int my_rank, int root,
 		int *my_send_count, int *my_recv_count,
-				int *send_counts, int *send_displs, 
-				int *recv_counts, int *recv_displs)
+		int *send_counts, int *send_displs,
+		int *recv_counts, int *recv_displs)
 {
 	// each processor will relax n rows
 	int nrows = (dimensions - 2) / processors;
@@ -323,27 +341,15 @@ int main(int argc, char *argv[])
 
 	// init
 	rc = MPI_Init(&argc, &argv);
-	if (rc != MPI_SUCCESS)
-	{
-		printf("error starting MPI program.\n");
-		MPI_Abort(MPI_COMM_WORLD, rc);
-	}
+	handle_rc(rc, "error starting MPI program.");
 
 	// get rank
 	rc = MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-	if (rc != MPI_SUCCESS)
-	{
-		printf("error retrieving rank.\n");
-		MPI_Abort(MPI_COMM_WORLD, rc);
-	}
+	handle_rc(rc, "error retrieving rank.");
 
 	// get number of processors
 	rc = MPI_Comm_size(MPI_COMM_WORLD, &processors);
-	if (rc != MPI_SUCCESS)
-	{
-		printf("error retrieving size of communicator.\n");
-		MPI_Abort(MPI_COMM_WORLD, rc);
-	}
+	handle_rc(rc, "error retrieving size of communicator.");
 
 	process_args(argc, argv, &dimensions, &precision);
 
@@ -360,12 +366,12 @@ int main(int argc, char *argv[])
 
 	alloc_memory(dimensions, processors, my_rank, root, &a, &b, &a_buf, &b_buf,
 			&send_counts, &send_displs, &recv_counts, &recv_displs);
-		
+
 	int my_send_count, my_recv_count;
-	alloc_work(dimensions, processors, my_rank, root, 
+	alloc_work(dimensions, processors, my_rank, root,
 			&my_send_count, &my_recv_count,
 			send_counts, send_displs, recv_counts, recv_displs);
-	
+
 	if (my_rank == root)
 	{
 		populate_array(a, b, dimensions);
@@ -389,10 +395,7 @@ int main(int argc, char *argv[])
 			send_counts, send_displs, recv_counts, recv_displs);
 
 	rc = MPI_Finalize();
-	if (rc != MPI_SUCCESS)
-	{
-		printf("error closing MPI program.\n");
-		MPI_Abort(MPI_COMM_WORLD, rc);
-	}
+	handle_rc(rc, "error closing MPI program.");
+
 	exit(EXIT_SUCCESS);
 }
