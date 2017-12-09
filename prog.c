@@ -166,7 +166,10 @@ void relax_array(double **a, double **b, int my_rank, int root,
 			handle_rc(rc, "error receiving data from the right.");
 		}
 
-		// reduce and swap array during async send and receive
+		// swap array and reduce during async send and receive
+
+		// a now points to results, ready for next iteration
+		swap_array(&a, &b);
 
 		// bitwise and of local_done to find global_done
 		// local_done will be 0 if a processor is not done
@@ -174,9 +177,6 @@ void relax_array(double **a, double **b, int my_rank, int root,
 		rc = MPI_Allreduce(&local_done, &global_done, 1,
 				MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
 		handle_rc(rc, "error reducing done values.");
-
-		// a now points to results, ready for next iteration
-		swap_array(&a, &b);
 
 		// wait for sends and receives before continuing on to next loop
 		if (my_rank != 0)
