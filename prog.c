@@ -196,9 +196,22 @@ void relax_array(double **a, double **b, int my_rank, int root,
 			rc = MPI_Wait(&recv_right_req, MPI_STATUS_IGNORE);
 			handle_rc(rc, "error waiting receive right.");
 		}
+
+#ifdef DEBUG
+		// in debug mode, gather after every loop to print the array
+		rc = MPI_Gatherv(&(a[1][0]), my_recv_count, MPI_DOUBLE,
+				&(a[0][0]), recv_counts, recv_displs, MPI_DOUBLE, root,
+				MPI_COMM_WORLD);
+		handle_rc(rc, "error gathering data.");
+
+		if (my_rank == root)
+		{
+			print_array(a, dimensions);
+		}
+#endif
 	}
 
-	// gather results from each processor's 'a' array
+	// after all iterations, gather results from each processor's 'a' array
 	// into the root processors 'a' array
 	// row 0 is border and only used for calculations, results start from row 1
 	rc = MPI_Gatherv(&(a[1][0]), my_recv_count, MPI_DOUBLE,
@@ -208,9 +221,6 @@ void relax_array(double **a, double **b, int my_rank, int root,
 
 	if (my_rank == root)
 	{
-#ifdef DEBUG
-		print_array(a, dimensions);
-#endif
 		printf("iterations: %d\n", iterations);
 	}
 }
