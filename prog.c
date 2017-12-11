@@ -26,7 +26,7 @@ void print_array(double **a, int dimensions)
 	{
 		for (int j = 0; j < dimensions; j++)
 		{
-			printf("%f\t", a[i][j]);
+			printf("%f ", a[i][j]);
 		}
 		printf("\n");
 	}
