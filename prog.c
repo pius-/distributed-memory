@@ -112,7 +112,8 @@ void relax_array(double **a, double **b, int my_rank, int root,
 	int proc_left_rank = my_rank - 1;
 	int proc_right_rank = my_rank + 1;
 
-	MPI_Request send_left_req, send_right_req, recv_left_req, recv_right_req;
+	MPI_Request send_left_req, send_right_req, recv_left_req, recv_right_req,
+			reduce_req;
 
 #ifdef DEBUG
 	if (my_rank == root)
@@ -166,17 +167,15 @@ void relax_array(double **a, double **b, int my_rank, int root,
 			handle_rc(rc, "error receiving data from the right.");
 		}
 
-		// swap array and reduce during async send and receive
-
-		// a now points to results, ready for next iteration
-		swap_array(&a, &b);
-
 		// bitwise and of local_done to find global_done
 		// local_done will be 0 if a processor is not done
 		// global_done will only be 1, if all processors are done
-		rc = MPI_Allreduce(&local_done, &global_done, 1,
-				MPI_CHAR, MPI_BAND, MPI_COMM_WORLD);
+		rc = MPI_Iallreduce(&local_done, &global_done, 1,
+				MPI_CHAR, MPI_BAND, MPI_COMM_WORLD, &reduce_req);
 		handle_rc(rc, "error reducing done values.");
+
+		// a now points to results, ready for next iteration
+		swap_array(&a, &b);
 
 		// wait for sends and receives before continuing on to next loop
 		if (my_rank != 0)
@@ -196,6 +195,9 @@ void relax_array(double **a, double **b, int my_rank, int root,
 			rc = MPI_Wait(&recv_right_req, MPI_STATUS_IGNORE);
 			handle_rc(rc, "error waiting receive right.");
 		}
+
+		rc = MPI_Wait(&reduce_req, MPI_STATUS_IGNORE);
+		handle_rc(rc, "error waiting reduce.");
 
 #ifdef DEBUG
 		// in debug mode, gather after every loop to print the array
