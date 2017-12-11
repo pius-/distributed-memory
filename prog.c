@@ -225,6 +225,13 @@ void relax_array(double **a, double **b, int my_rank, int root,
 	{
 		printf("iterations: %d\n", iterations);
 	}
+
+#ifdef CORRECTNESS
+	if (my_rank == root)
+	{
+		print_array(a, dimensions);
+	}
+#endif
 }
 
 void alloc_work(int dimensions, int processors, int my_rank, int root,
